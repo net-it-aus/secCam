@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Camera</title>
+        <style>
+            /* Style for overlaying the <img> on the <video> */
+            #container {
+                position: relative;
+                width: fit-content;
+            }
+            #webcam {
+                width: 640px;
+                height: 480px;
+                position: absolute;
+            }
+            #overlayImage {
+                width: 640px;
+                height: 480px;
+                position: absolute;
+                opacity: 0.7; /* Semi-transparent for better visibility */
+                z-index: 1;
+            }
+            #status {
+                margin-top: 10px;
+            }
+        </style>
+
+    </head>
+    <body>
+
+        <div id="container">
+            <video id="webcam" autoplay playsinline></video>
+            <img id="overlayImage" alt="Captured Frame">
+        </div>
+        <canvas id="canvas" style="display: none;"></canvas>
+        <p id="status">Waiting for motion...</p>
+
+        <script>
+
+            const video = document.getElementById('webcam');
+            const canvas = document.getElementById('canvas');
+            const context = canvas.getContext('2d');
+            const overlayImage = document.getElementById('overlayImage');
+            const status = document.getElementById('status');
+
+            // Access the webcam
+                navigator.mediaDevices.getUserMedia({ video: true })
+                .then(stream => {
+                    video.srcObject = stream;
+
+                    // Capture an initial still image on page load
+                    video.addEventListener("loadeddata", () => {
+                    captureStillFrame(video, context, canvas, overlayImage);
+                    });
+
+                    // Periodically check for motion
+                    setInterval(() => detectMotion(video, context, canvas, overlayImage, status), 1000);
+                })
+                .catch(err => console.error('Error accessing webcam:', err));
+
+            function captureStillFrame(video, context, canvas, overlayImage) {
+                // Set canvas dimensions to match video
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+
+                // Draw the current video frame onto the canvas
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                // Convert canvas content to Data URL for <img>
+                    const initialFrameDataURL = canvas.toDataURL('image/png');
+                    overlayImage.src = initialFrameDataURL;
+            }
+
+            function detectMotion(video, context, canvas, overlayImage, status) {
+                // Set canvas dimensions to match video
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+
+                // Draw the current video frame onto the canvas
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                // Get current frame data
+                    const currentFrame = context.getImageData(0, 0, canvas.width, canvas.height);
+
+                // Compare with previous frame
+                    if (window.previousFrame) {
+                        const diff = calculateFrameDifference(currentFrame.data, window.previousFrame.data);
+
+                        // If motion is detected, update the overlay image
+                        if (diff > 10000) { // Motion detection threshold
+                        status.textContent = "Motion detected! Updating overlay...";
+                        const motionFrameDataURL = canvas.toDataURL('image/png');
+                        overlayImage.src = motionFrameDataURL;
+                        } else {
+                        status.textContent = "No significant motion detected...";
+                        }
+                    }
+
+                // Save current frame for the next comparison
+                    window.previousFrame = currentFrame;
+            }
+
+            function calculateFrameDifference(current, previous) {
+                let diff = 0;
+                for (let i = 0; i < current.length; i += 4) { // Process RGBA values
+                    diff += Math.abs(current[i] - previous[i]); // Red channel
+                    diff += Math.abs(current[i + 1] - previous[i + 1]); // Green channel
+                    diff += Math.abs(current[i + 2] - previous[i + 2]); // Blue channel
+                }
+                return diff;
+            }
+
+        </script>
+    </body>
+</html>

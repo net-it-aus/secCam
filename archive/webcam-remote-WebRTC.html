@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Remote Webcam</title>
+    <style>
+        /* video {
+            width: 100%;
+            max-width: 640px;
+            border: 2px solid #000;
+            border-radius: 8px;
+        } */
+        video, canvas {
+            width: 100%;
+            max-width: 640px;
+            margin-bottom: 20px;
+            border: 2px solid #000;
+            border-radius: 8px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Remote Webcam</h1>
+    <p id="countMotionsDetected">0</p>
+    <video id="webcam" autoplay playsinline></video>
+    <canvas id="motionCanvas"></canvas>
+    <img id="overlayImage" alt="Captured Frame">
+    <br>
+    <button id="toggleCamera">Switch Camera</button>
+    <script>
+
+        const consoleLog = true;
+
+        let token;
+
+        let countMotionsDetected = 0;
+        const videoElement = document.getElementById('webcam');
+        const canvas = document.getElementById('motionCanvas');
+        const overlayImage = document.getElementById('overlayImage');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const toggleButton = document.getElementById('toggleCamera');
+        let currentFacingMode = "user"; // Start with front camera
+        let previousFrame = null;
+        let lastMotionFrame = null;
+        const detectionThreshold = 100000; // Significant pixel change threshold
+        const detectionInterval = 1000; // ? seconds
+        // Customized video settings START
+			const videoConstraints = {
+				facingMode: "environment", // Example: rear camera
+				width: { ideal: 1280 },    // Ideal resolution width
+				height: { ideal: 720 },    // Ideal resolution height
+				frameRate: { ideal: 30 }   // Smooth video at 30fps
+			};
+        // Customized video settings END
+        async function startWebcam(facingMode) {
+          try {
+              const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints });
+              videoElement.srcObject = stream;
+              currentFacingMode = facingMode; // Update current mode
+              // Wait for video metadata before initializing canvas START
+                videoElement.addEventListener('loadedmetadata', () => {
+                    // Capture an initial still image on page load START
+                        // captureStillFrame(videoElement, context, canvas, overlayImage, statusMessage);
+                        captureStillFrame(videoElement, ctx, canvas, overlayImage);
+                    // Capture an initial still image on page load START
+                    setInterval(() => {
+                    processVideo(); /// Start motion detection after video loads
+                  }, detectionInterval);
+                });
+              // Wait for video metadata before initializing canvas END
+            } catch (error) {
+              console.error('Error accessing webcam:', error);
+          }
+        }
+        startWebcam("user");
+
+        // Motion detection logic START
+          function processVideo() {
+              canvas.width = videoElement.videoWidth;
+              canvas.height = videoElement.videoHeight;
+
+              ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+              const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+              if (previousFrame) {
+                  const motionDetected = detectMotion(previousFrame, currentFrame);
+                  if (motionDetected) {
+                      countMotionsDetected += 1;
+                      document.getElementById("countMotionsDetected").innerHTML = countMotionsDetected;
+                      lastMotionFrame = currentFrame; // Save the current frame as the last motion frame
+                      displayMotionFrame(); // Draw the last motion frame on the canvas
+                      console.log("Motion detected!");
+                      console.log("detectMotion(prevFrame, currFrame)\ndetectionThreshold:-\n",detectionThreshold);
+						// Capture a still image at every motion detection START
+							// captureStillFrame(videoElement, context, canvas, overlayImage, statusMessage);
+							captureStillFrame(videoElement, ctx, canvas, overlayImage);
+						// Capture a still image at every motion detection END
+                    }
+              }
+              previousFrame = currentFrame;
+
+              requestAnimationFrame(processVideo);
+          }
+        // Motion detection logic END
+
+        // Compares two frames for motion START
+          function detectMotion(prevFrame, currFrame) {
+              // const threshold = 300000; // Sensitivity
+              const diff = currFrame.data.reduce((count, currentValue, index) => {
+                  return count + (Math.abs(currentValue - prevFrame.data[index]) > 30 ? 1 : 0);
+              }, 0);
+              // Motion is detected if pixel difference exceeds a threshold START
+                // return diff > canvas.width * canvas.height * 0.02; // 2% difference
+                return diff > detectionThreshold;
+              // Motion is detected if pixel difference exceeds a threshold END
+            }
+        // Compares two frames for motion END
+
+        function displayMotionFrame() {
+          if (lastMotionFrame) {
+              // Clear the canvas before displaying the motion frame
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+              // Draw the motion frame on the canvas
+              ctx.putImageData(lastMotionFrame, 0, 0);
+          }
+        }
+
+
+      // Toggle button functionality START
+        toggleButton.addEventListener('click', () => {
+            const newFacingMode = currentFacingMode === "user" ? "environment" : "user";
+            startWebcam(newFacingMode); // Switch camera
+        });
+      // Toggle button functionality END
+
+	//   captureStillFrame START
+		let compressedDataURL;
+      	function captureStillFrame(video, context, canvas, overlayImage) {
+			// Set canvas dimensions to match video
+				canvas.width = video.videoWidth;
+				canvas.height = video.videoHeight;
+				if(consoleLog){console.log(canvas.width, canvas.height);}
+
+			const maxWidth = 150;
+			// const maxWidth = video.videoWidth;
+			const maxHeight = 150;
+			// const maxHeight = video.videoHeight;
+			if(consoleLog){console.log(maxWidth, maxHeight);}
+			let width = video.videoWidth;
+			let height = video.videoHeight;
+			// Maintain aspect ratio while resizing
+				if (width > height && width > maxWidth) {
+					height *= maxWidth / width;
+					width = maxWidth;
+				} else if (height > width && height > maxHeight) {
+					width *= maxHeight / height;
+					height = maxHeight;
+				}
+				canvas.width = width;
+				canvas.height = height;
+				if(consoleLog){console.log(canvas.width, canvas.height);}
+
+			// Draw the current video frame onto the canvas
+				context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+			// Compress and output the image
+				const quality = 1 // between 0 and 1
+				// const compressedDataURL = canvas.toDataURL("image/jpeg", quality);
+				compressedDataURL = canvas.toDataURL("image/jpeg", quality);
+				if(consoleLog){console.log('compressedDataURL\n',compressedDataURL);}
+			// Optionally, convert DataURL back to a file
+				const blob = dataURLToBlob(compressedDataURL);
+				if(consoleLog){console.log('compressedDataURL -> blob\n',blob);}
+
+
+			// Convert canvas content to Data URL for <img>
+				const initialFrameDataURL = canvas.toDataURL('image/png');
+				overlayImage.src = initialFrameDataURL;
+
+			// sendEmailAlert(initialFrameDataURL);
+			// sendEmailAlert(compressedDataURL);
+			sendImage(compressedDataURL);
+
+        }
+	//   captureStillFrame END
+
+	// send still image to server START ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		// START
+			function dataURLToBlob(dataURL) {
+				const parts = dataURL.split(",");
+				const byteString = atob(parts[1]);
+				const mimeString = parts[0].match(/:(.*?);/)[1];
+				const byteArray = new Uint8Array(byteString.length);
+				for (let i = 0; i < byteString.length; i++) {
+					byteArray[i] = byteString.charCodeAt(i);
+				}
+				return new Blob([byteArray], { type: mimeString });
+			}
+		// END
+		// Convert Data URL to Blob START
+			function dataURLToBlob(dataURL) {
+				const [header, base64Data] = dataURL.split(",");
+				const mimeType = header.match(/:(.*?);/)[1];
+				const binaryData = atob(base64Data);
+				const arrayBuffer = new Uint8Array(binaryData.length);
+
+				for (let i = 0; i < binaryData.length; i++) {
+					arrayBuffer[i] = binaryData.charCodeAt(i);
+				}
+
+				return new Blob([arrayBuffer], { type: mimeType });
+			}
+		// Convert Data URL to Blob END
+		// // connect to server START
+		// 	document.getElementById('supplierConnectCode').addEventListener('submit', function(event) {
+		// 		event.preventDefault();
+		// 		email = document.getElementById('supplierEmail').value
+		// 		code = document.getElementById('supplierCode').value
+		// 		console.log("Email address " + email + " submitted ok.")
+		// 		console.log("Code " + code + " submitted ok.")
+		// 		async function supplierConnectCode(email,code){
+		// 			const v_data = JSON.stringify(
+		// 				{
+		// 					email: email,
+		// 					code: code
+		// 				}
+		// 			);
+		// 			const v_options = {method: 'POST', headers: {'Content-Type': 'application/json'},body: v_data};
+		// 			// const url = "https://netit.com.au/cctConnectCode";
+		// 			// const url = "/cctConnectCode";
+		// 			const url = 'http://localhost:2070/cctConnectCode';
+		// 			await fetch(url,v_options)
+		// 			.then(res => {
+		// 				console.log(res);
+		// 				return res.json();
+		// 			})
+		// 			.then((res_data) => {
+		// 				console.log(res_data);
+		// 				console.log(res_data.message);
+		// 				if (res_data.message==="codes match"){
+		// 					token = res_data.token;
+		// 					console.log(token);
+		// 					document.getElementById("uploadForm").style.display = "block";
+		// 					// document.getElementById("supplierConnect").style.display = "none";
+		// 					document.getElementById("supplierCode").readonly=true;
+		// 					document.getElementById("supplierCode").disabled=true;
+		// 					document.getElementById("supplierCodeButton").disabled=true;
+		// 				}
+		// 			});
+		// 		}
+		// 		supplierConnectCode(email,code);
+		// 	});
+		// // connect to server END
+		// Send the file to the server START
+			async function sendImage(dataURL) {
+				return;
+				const blob = dataURLToBlob(dataURL);
+				const formData = new FormData();
+				formData.append("image", blob, "compressed-image.jpg");
+				try {
+					const response = await fetch("http://localhost:2070/sec_cam_still_upload", {
+						method: "POST",
+						headers: {
+								// 'Access-Control-Allow-Origin',
+								// 'authorization': `Bearer ${token}`
+								'authorization': `${token}`
+							},
+						body: formData,
+					});
+					const result = await response.json();
+					console.log("Server Response:", result);
+				} catch (error) {
+					console.error("Error sending image:", error);
+				}
+			}
+		// Send the file to the server END
+		// Usage
+		sendImage(compressedDataURL);
+	// send still image to server END ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+</script>
+</body>
+</html>

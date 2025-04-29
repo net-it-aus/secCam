@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Camera</title>
+
+        <style>
+            /* Style for overlaying the <img> on the <video> */
+            #webcamContainer {
+                position: relative;
+                width: fit-content;
+                max-width: 350px;
+            }
+            #webcam {
+                /* width: 640px; */
+                width: 100%;
+                /* height: 480px; */
+                height: auto;
+                position: absolute;
+            }
+            #overlayImage {
+                width: 640px;
+                height: 480px;
+                position: absolute;
+                opacity: 0.7; /* Semi-transparent for better visibility */
+                z-index: 100;
+            }
+            #statusMessage {
+                position: relative;
+                margin-top: 10px;
+                /* color:chartreuse; */
+                background-color: white;
+                border:1px solid red;
+                opacity: 1;
+                z-index: 200;
+            }
+            #downloadButton{
+                position: relative;
+            }
+            #motionDetected{
+                position: relative;
+                /* position: absolute; */
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                border: 5px solid red; /* Red border as an example */
+                display: none; /* Hidden by default */
+                pointer-events: none; /* Ensures it doesn't interfere with interactions */
+            }
+        </style>
+
+        <script src="https://cdn.jsdelivr.net/npm/emailjs-com@3.2.0/dist/email.min.js"></script>
+
+    </head>
+    <body>
+
+        <p id="statusMessage">Waiting for motion...</p>
+        <button id="downloadButton">Download all images</button>
+        <div id="motionIndicator">Motion Detected</div>
+        <div id="webcamContainer">
+            <video id="webcam" autoplay playsinline></video>
+            <img id="overlayImage" alt="Captured Frame">
+        </div>
+        <canvas id="canvas" style="display: none;"></canvas>
+
+        <script>
+
+            const consoleLog = true;
+
+            const video = document.getElementById('webcam');
+            const canvas = document.getElementById('canvas');
+            const context = canvas.getContext('2d');
+            const overlayImage = document.getElementById('overlayImage');
+            const statusMessage = document.getElementById('statusMessage');
+
+            let motionDetectionInterval = 2000;
+            let motionDetectionThreshhold = 4000000;
+            let imagesData = [];
+
+            function startMotionDetect(){
+                // Access the webcam START
+                    // desktop webcam
+                        // navigator.mediaDevices.getUserMedia({ video: true })
+                    // mobile device camera
+                        navigator.mediaDevices.getUserMedia({video: { facingMode: "environment" }})
+                    // 
+                    .then(stream => {
+                        video.srcObject = stream;
+                        // Capture an initial still image on page load
+                            video.addEventListener("loadeddata", () => {
+                            captureStillFrame(video, context, canvas, overlayImage, statusMessage);
+                            });
+                        // Periodically check for motion
+                            setInterval(() => detectMotion(video, context, canvas, overlayImage, statusMessage), motionDetectionInterval);
+                    })
+                    .catch(err => console.error('Error accessing webcam:', err));
+                // Access the webcam END
+            }
+            startMotionDetect();
+
+            function captureStillFrame(video, context, canvas, overlayImage, statusMessage) {
+                // Set canvas dimensions to match video
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    if(consoleLog){console.log(canvas.width, canvas.height);}
+
+const maxWidth = 150;
+// const maxWidth = video.videoWidth;
+const maxHeight = 150;
+// const maxHeight = video.videoHeight;
+if(consoleLog){console.log(maxWidth, maxHeight);}
+let width = video.videoWidth;
+let height = video.videoHeight;
+// Maintain aspect ratio while resizing
+    if (width > height && width > maxWidth) {
+        height *= maxWidth / width;
+        width = maxWidth;
+    } else if (height > width && height > maxHeight) {
+        width *= maxHeight / height;
+        height = maxHeight;
+    }
+    canvas.width = width;
+    canvas.height = height;
+    if(consoleLog){console.log(canvas.width, canvas.height);}
+
+                // Draw the current video frame onto the canvas
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+// Compress and output the image
+    const quality = 1 // between 0 and 1
+    const compressedDataURL = canvas.toDataURL("image/jpeg", quality);
+    if(consoleLog){console.log('compressedDataURL\n',compressedDataURL);}
+ // Optionally, convert DataURL back to a file
+    const blob = dataURLToBlob(compressedDataURL);
+    if(consoleLog){console.log('compressedDataURL -> blob\n',blob);}
+
+
+                // Convert canvas content to Data URL for <img>
+                    const initialFrameDataURL = canvas.toDataURL('image/png');
+                    overlayImage.src = initialFrameDataURL;
+                statusMessage.textContent = "Initial still frame captured...";
+
+                // sendEmailAlert(initialFrameDataURL);
+                sendEmailAlert(compressedDataURL);
+            }
+
+            function detectMotion(video, context, canvas, overlayImage, statusMessage) {
+                // Set canvas dimensions to match video
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                // Draw the current video frame onto the canvas
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                // Get current frame data
+                    const currentFrame = context.getImageData(0, 0, canvas.width, canvas.height);
+                // Compare with previous frame
+                    if (window.previousFrame) {
+                        const diff = calculateFrameDifference(currentFrame.data, window.previousFrame.data);
+                        // If motion is detected, update the overlay image
+                        if (diff >= motionDetectionThreshhold) { // Motion detection threshold
+                            console.log("motion detected\n",diff,motionDetectionThreshhold);
+                            // Call this function whenever motion is detected or not
+                                updateIndicator(true);
+                            // add image to imagesData array for later download
+                                imagesData.push(canvas.toDataURL("image/png")); // Save image data URL
+                            statusMessage.textContent = "Motion detected! Updating overlay...";
+                            const motionFrameDataURL = canvas.toDataURL('image/png');
+                            overlayImage.src = motionFrameDataURL;
+                            // // save immediately - requires user action
+                            //     autoSaveStillImage(motionFrameDataURL); // Save the still automatically
+                        } else {
+                            statusMessage.textContent = "No significant motion detected...";
+                            // Call this function whenever motion is detected or not
+                                updateIndicator(false);
+                        }
+                    }
+                // Save current frame for the next comparison
+                    window.previousFrame = currentFrame;
+            }
+
+            function calculateFrameDifference(current, previous) {
+                let diff = 0;
+                for (let i = 0; i < current.length; i += 4) { // Process RGBA values
+                    diff += Math.abs(current[i] - previous[i]); // Red channel
+                    diff += Math.abs(current[i + 1] - previous[i + 1]); // Green channel
+                    diff += Math.abs(current[i + 2] - previous[i + 2]); // Blue channel
+                }
+                // // Check if the total "diff" exceeds a threshold
+                // const diffThreshold = 1000; // Adjust this value based on experimentation
+                // if (diffSum > diffThreshold) {
+                //     motionDetected = true;
+                // } else {
+                //     motionDetected = false;
+                // }
+                return diff;
+            }
+
+            function autoSaveStillImage(dataURL, filename = "motion-detected.png") {
+                console.log(`autoSaveStillImage()`);
+                // Create a temporary anchor element
+                    const link = document.createElement("a");
+                    link.href = dataURL; // Data URL for the image
+                    link.download = filename; // Default filename
+                    link.style.display = "none";
+                // Append the link to the body and trigger the download
+                    document.body.appendChild(link);
+                    link.click(); // Simulates a click to download the file
+                    document.body.removeChild(link); // Clean up the link
+            }
+
+            // Button to trigger download
+            document.getElementById("downloadButton").addEventListener("click", () => {
+                console.log(`document.getElementById("downloadButton").addEventListener("click", () => {`);
+                let myIndex = "";
+                imagesData.forEach((data, index) => {
+                    myIndex = index + 1
+                    if(myIndex * 1 < 10){myIndex = "0" + myIndex;}
+                    if(myIndex * 1 < 100){myIndex = "0" + myIndex;}
+                    // Create a temporary anchor element
+                        const link = document.createElement("a");
+                        link.href = data;
+                        link.download = `motion-image-${myIndex}.png`;
+                        link.style.display = "none";
+                    // Append the link to the body and trigger the download
+                        document.body.appendChild(link);
+                        link.click(); // Simulates a click to download the file
+                        document.body.removeChild(link); // Clean up the link
+                });
+            });
+
+            const myIndicator = document.getElementById("motionIndicator");
+            function updateIndicator(isMotionDetected) {
+                if (isMotionDetected) {
+                    myIndicator.style.display = "block"; // Show indicator
+                } else {
+                    myIndicator.style.display = "none"; // Hide indicator
+                }
+            }
+
+function dataURLToBlob(dataURL) {
+    const parts = dataURL.split(",");
+    const byteString = atob(parts[1]);
+    const mimeString = parts[0].match(/:(.*?);/)[1];
+    const byteArray = new Uint8Array(byteString.length);
+    for (let i = 0; i < byteString.length; i++) {
+        byteArray[i] = byteString.charCodeAt(i);
+    }
+    return new Blob([byteArray], { type: mimeString });
+}
+
+
+            emailjs.init("donald.garton@netit.com.au"); // Replace "your_user_id" with the user ID from EmailJS
+            emailjs.init("qAWvqL1a3ZYTM6Rhu"); // Replace "your_public_key" with the actual key from EmailJS
+            function sendEmailAlert(imageData) {
+                emailjs.send("service_8yc789n", "template_9cahgw5", {
+                    to_email: "donald.garton@outlook.com",
+                    subject: " Alert:- Motion Detected",
+                    // message: "Motion has been detected by the monitoring device!",
+                    image: imageData // You can optionally send a captured image
+                })
+                .then(() => console.log("Email sent with attachment successfully!"))
+                .catch((error) => console.error("Failed to send email:", error));
+            }
+
+        </script>
+    </body>
+</html>

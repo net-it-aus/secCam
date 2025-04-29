@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+
+        <meta charset="UTF-8"/>
+        <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+        <meta name="description" content="Security Camera for Mobile Phone by Net IT Australia"/> 
+        <meta name="keywords" content="Security Camera, Net IT Australia, net.it.com.au"/> 
+        <meta name="author" content="Net IT Australia"/>
+        <title>Security Camera for Mobile Phone</title>
+
+        <style>
+
+            .media-container {
+                position:relative;
+                top:3px;
+                left:3px;
+                height:240px;
+            }
+
+            .media-element{
+                position:absolute;
+                top:0px;
+                left:0px;
+                width: 320px;
+                height: 240px;
+                /* width: 100%; */
+                /* height: auto; */
+                border: 2px solid black; /* Optional for visibility */
+                object-fit: cover; /* Ensures proper scaling for images and videos */
+            }
+
+            .webcam-video{
+                z-index: 1;
+            }
+            .video-canvas{
+                z-index: 2;
+                /* display:none; */
+            }
+            .canvas-image{
+                z-index: 3;
+                opacity:50%;
+            }
+
+            .sec-cam-dashboard{
+                border:2px solid black;
+                margin-top:10px;
+                margin-left:3px;
+                width: 320px;
+            }
+            .sec-cam-dashboard p{
+                background: rgba(0, 0, 0, 0.2); /* Semi-transparent background */
+                padding: 10px;
+                border-radius: 5px;
+                text-align: center;
+            }
+
+        </style>
+
+        <script>
+
+            window.onload = () => {
+
+                const consoleLog = true;
+
+                function addEventListeners() {
+
+                }
+                addEventListeners();
+
+                const webcamVideo = document.getElementById("webcamVideo");
+                const cameraFacingMode = "environment"; // rear camera:- "environment"; front camera:- "user"
+                const videoCanvas = document.getElementById("videoCanvas");
+                const canvasImage = document.getElementById('canvasImage');
+                const videoCanvasContext = videoCanvas.getContext('2d', { willReadFrequently: true });
+
+                const motionDetectionThreshold = 100000; // Significant pixel change threshold
+                const motionDetectionInterval = 1000; // ? seconds
+                let motionDetectedTrueCounter = 0;
+                let motionDetectedFalseCounter = 0;
+                let previousFrame = null;
+                let countMotionsDetected = 0; // DOM displays cumulative count
+                let motionDetectionIntervalId;
+
+                // 1 getWebcamDetails() START
+                    function getWebcamDetails(){
+                        if(consoleLog){console.log('cameraFacingMode requested:- ',cameraFacingMode);}
+                        // Customized video settings START
+                        const videoConstraints = {
+                                facingMode: { ideal: cameraFacingMode }, // rear camera:- "environment"; front camera:- "user"
+                                width: { ideal: 1280 },    // Ideal resolution width, will automatically scale back if necessary
+                                height: { ideal: 720 },    // Ideal resolution height, will automatically scale back if necessary
+                                frameRate: { ideal: 30 }   // Smooth video at 30fps, will automatically scale back if necessary
+                            };
+                        // Customized video settings END
+                        navigator.mediaDevices.getUserMedia({ video: videoConstraints})
+                        .then((stream) => {
+                            const videoTrack = stream.getVideoTracks()[0];
+                            const settings = videoTrack.getSettings();
+                            
+                            if(consoleLog){console.log(`Width: ${settings.width}, Height: ${settings.height}, Frame rate: ${settings.frameRate}, Aspect ratio: ${settings.aspectRatio}, Device ID: ${settings.deviceId}, Facing mode: ${settings.facingMode}, Group ID: ${settings.groupId}, Resize mode: ${settings.resizeMode}`);}
+                            document.getElementById("cameraDetails").innerHTML = `Width: ${settings.width}, Height: ${settings.height}, Frame rate: ${settings.frameRate}, Aspect ratio: ${settings.aspectRatio.toPrecision(3)}, Facing mode: ${settings.facingMode}.`;
+                            
+                            // Stop the stream to release the webcam
+                                stream.getTracks().forEach(track => track.stop());
+
+                            // start the webcam
+                                startWebcam();
+                        })
+                        .catch((error) => {
+                            if(consoleLog){console.error("Error accessing webcam:", error);}
+                        });
+                    }
+                    getWebcamDetails();
+                // 1 getWebcamDetails() END
+
+                // 2 startWebcam() START
+                    function startWebcam(){
+                        // Customized video settings START
+                            const videoConstraints = {
+                                    facingMode: cameraFacingMode, // Example: rear camera
+                                    width: { ideal: 1280 },    // Ideal resolution width, will automatically scale back if necessary
+                                    height: { ideal: 720 },    // Ideal resolution height, will automatically scale back if necessary
+                                    frameRate: { ideal: 30 }   // Smooth video at 30fps, will automatically scale back if necessary
+                                };
+                        // Customized video settings END
+                        async function startWebcamVideo() {
+                            if(consoleLog){console.log('cameraFacingMode requested:- ',cameraFacingMode);}
+                            try {
+                                const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints });
+                                webcamVideo.srcObject = stream;
+                                if(consoleLog){console.log(webcamVideo);}
+                                currentFacingMode = cameraFacingMode; // Update current mode
+                                // Wait for video metadata before initializing canvas START
+                                    webcamVideo.addEventListener('loadedmetadata', () => {
+                                        // Capture an initial still image on page load START
+                                            captureStillFrame(webcamVideo, videoCanvas, videoCanvasContext, canvasImage);
+                                        // Capture an initial still image on page load END
+                                        // begin motion detection START
+                                            motionDetectionIntervalId = setInterval(() => {
+                                                processVideo(); /// Start motion detection after video loads
+                                            }, motionDetectionInterval);
+                                        // begin motion detection END
+                                    });
+                                // Wait for video metadata before initializing canvas END
+                            } catch (error) {
+                                if(consoleLog){console.error('Error accessing webcam:', error);}
+                                document.getElementById('secCamDashboard').innerHTML = `<p>Error: Unable to access webcam. Please check permissions.</p>`;
+                            }
+                        }
+                        startWebcamVideo();
+                    }
+                // 2 startWebcam() END
+
+                // 3 Motion detection logic START
+                    function processVideo() {
+                        // Draw the last motion frame on the canvas START
+                            function displayMotionFrame() {
+                                if (lastMotionFrame) {
+                                    // Clear the canvas before displaying the motion frame
+                                        videoCanvasContext.clearRect(0, 0, videoCanvas.width, videoCanvas.height);
+
+                                    // Draw the motion frame on the canvas
+                                        videoCanvasContext.putImageData(lastMotionFrame, 0, 0);
+                                }
+                            }
+                        // Draw the last motion frame on the canvas END
+                        // Compares two frames for motion START
+                            function detectMotion(prevFrame, currFrame) {
+                                // const threshold = 300000; // Sensitivity
+                                const diff = currFrame.data.reduce((count, currentValue, index) => {
+                                    return count + (Math.abs(currentValue - prevFrame.data[index]) > 30 ? 1 : 0);
+                                }, 0);
+                                // Motion is detected if pixel difference exceeds a threshold START
+                                    // return diff > canvas.width * canvas.height * 0.02; // 2% difference
+                                    return diff > motionDetectionThreshold;
+                                // Motion is detected if pixel difference exceeds a threshold END
+                            }
+                        // Compares two frames for motion END
+
+                        videoCanvas.width = webcamVideo.videoWidth;
+                        videoCanvas.height = webcamVideo.videoHeight;
+                        videoCanvasContext.drawImage(webcamVideo, 0, 0, videoCanvas.width, videoCanvas.height);
+                        const currentFrame = videoCanvasContext.getImageData(0, 0, videoCanvas.width, videoCanvas.height);
+
+                        if (previousFrame) {
+
+                            // determine if motion has occured
+                                const motionDetected = detectMotion(previousFrame, currentFrame);
+                            if (motionDetected) {
+                                countMotionsDetected += 1;
+                                motionDetectedTrueCounter += 1;
+                                document.getElementById("countMotionsDetected").innerHTML = countMotionsDetected;
+                                lastMotionFrame = currentFrame; // Save the current frame as the last motion frame
+                                // Draw the last motion frame on the canvas
+                                    displayMotionFrame();
+    
+                                // Capture a still image at every motion detection
+                                    captureStillFrame(webcamVideo, videoCanvas, videoCanvasContext, canvasImage);
+
+                                if(consoleLog){console.log("Motion detected!");}
+                                if(consoleLog){console.log("detectMotion(previousFrame, currentFrame)\nmotionDetectionThreshold:-\n",motionDetectionThreshold);}
+    
+                            }else{
+                                motionDetectedFalseCounter += 1;
+                            }
+
+                        }
+                        previousFrame = currentFrame;
+
+                        // requestAnimationFrame(processVideo);
+
+                        document.getElementById("motionDetectedCount").innerHTML = `True: ${motionDetectedTrueCounter}, False: ${motionDetectedFalseCounter}`;
+                        if(motionDetectedTrueCounter > 10){
+                            motionDetectedTrueCounter = 0; // re-set counter
+                            clearInterval(motionDetectionIntervalId);
+                            // re-start motion detection after X seconds (3000 milliseconds)
+                                setTimeout(() => {
+                                    // re-start motion detection START
+                                        motionDetectionIntervalId = setInterval(() => {
+                                            processVideo();
+                                        }, motionDetectionInterval);
+                                    // re-start motion detection END
+                                }, 5000);
+                        }
+                        if(motionDetectedFalseCounter > 10){
+                            motionDetectedTrueCounter = 0; // re-set True counter
+                            motionDetectedFalseCounter = 0; // re-set False counter
+                        }
+
+                    }
+                // 3 Motion detection logic END
+
+                // capture still frame and put to canvasImage START
+                    function captureStillFrame(webcamVideo, videoCanvas, videoCanvasContext, canvasImage) {
+                        // Set canvas size to match the video dimensions
+                            videoCanvas.width = webcamVideo.videoWidth;
+                            videoCanvas.height = webcamVideo.videoHeight;
+
+                        // // Draw the current video frame onto the canvas
+                        //     videoCanvasContext.drawImage(webcamVideo, 0, 0, videoCanvas.width, videoCanvas.height);
+
+                        // Convert the canvas content to a data URL and set it as the src of an image
+                            canvasImage.src = videoCanvas.toDataURL('image/png');
+                    }
+                // capture still frame and put to canvasImage END
+
+                // send still image to server START ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                    // START
+                    //     function dataURLToBlob(dataURL) {
+                    //         const parts = dataURL.split(",");
+                    //         const byteString = atob(parts[1]);
+                    //         const mimeString = parts[0].match(/:(.*?);/)[1];
+                    //         const byteArray = new Uint8Array(byteString.length);
+                    //         for (let i = 0; i < byteString.length; i++) {
+                    //             byteArray[i] = byteString.charCodeAt(i);
+                    //         }
+                    //         return new Blob([byteArray], { type: mimeString });
+                    //     }
+                    // // END
+                    // Convert Data URL to Blob START
+                        function dataURLToBlob(dataURL) {
+                            const [header, base64Data] = dataURL.split(",");
+                            const mimeType = header.match(/:(.*?);/)[1];
+                            const binaryData = atob(base64Data);
+                            const arrayBuffer = new Uint8Array(binaryData.length);
+
+                            for (let i = 0; i < binaryData.length; i++) {
+                                arrayBuffer[i] = binaryData.charCodeAt(i);
+                            }
+
+                            return new Blob([arrayBuffer], { type: mimeType });
+                        }
+                    // Convert Data URL to Blob END
+                    // // connect to server START
+                    // 	document.getElementById('supplierConnectCode').addEventListener('submit', function(event) {
+                    // 		event.preventDefault();
+                    // 		email = document.getElementById('supplierEmail').value
+                    // 		code = document.getElementById('supplierCode').value
+                    // 		console.log("Email address " + email + " submitted ok.")
+                    // 		console.log("Code " + code + " submitted ok.")
+                    // 		async function supplierConnectCode(email,code){
+                    // 			const v_data = JSON.stringify(
+                    // 				{
+                    // 					email: email,
+                    // 					code: code
+                    // 				}
+                    // 			);
+                    // 			const v_options = {method: 'POST', headers: {'Content-Type': 'application/json'},body: v_data};
+                    // 			// const url = "https://netit.com.au/cctConnectCode";
+                    // 			// const url = "/cctConnectCode";
+                    // 			const url = 'http://localhost:2070/cctConnectCode';
+                    // 			await fetch(url,v_options)
+                    // 			.then(res => {
+                    // 				console.log(res);
+                    // 				return res.json();
+                    // 			})
+                    // 			.then((res_data) => {
+                    // 				console.log(res_data);
+                    // 				console.log(res_data.message);
+                    // 				if (res_data.message==="codes match"){
+                    // 					token = res_data.token;
+                    // 					console.log(token);
+                    // 					document.getElementById("uploadForm").style.display = "block";
+                    // 					// document.getElementById("supplierConnect").style.display = "none";
+                    // 					document.getElementById("supplierCode").readonly=true;
+                    // 					document.getElementById("supplierCode").disabled=true;
+                    // 					document.getElementById("supplierCodeButton").disabled=true;
+                    // 				}
+                    // 			});
+                    // 		}
+                    // 		supplierConnectCode(email,code);
+                    // 	});
+                    // // connect to server END
+
+                        // Compress and output the image
+                        const quality = 1 // between 0 and 1
+                            compressedDataURL = videoCanvas.toDataURL("image/jpeg", quality);
+                            if(consoleLog){console.log('compressedDataURL\n',compressedDataURL);}
+                        // Optionally, convert DataURL back to a file
+                            const blob = dataURLToBlob(compressedDataURL);
+                            if(consoleLog){console.log('compressedDataURL -> blob\n',blob);}
+
+
+                    // Send the file to the server START
+                        async function sendImage(dataURL) {
+                            return;
+                            const blob = dataURLToBlob(dataURL);
+                            const formData = new FormData();
+                            formData.append("image", blob, "compressed-image.jpg");
+                            try {
+                                const response = await fetch("http://localhost:2070/sec_cam_still_upload", {
+                                    method: "POST",
+                                    headers: {
+                                            // 'Access-Control-Allow-Origin',
+                                            // 'authorization': `Bearer ${token}`
+                                            'authorization': `${token}`
+                                        },
+                                    body: formData,
+                                });
+                                const result = await response.json();
+                                console.log("Server Response:", result);
+                            } catch (error) {
+                                console.error("Error sending image:", error);
+                            }
+                        }
+                    // Send the file to the server END
+                    // Usage
+                    sendImage(compressedDataURL);
+                // send still image to server END ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+            }
+
+        </script>
+
+    </head>
+    <body>
+
+        <div class="media-container">
+
+            <video id="webcamVideo" class="media-element webcam-video" autoplay playsinline>
+                The "video" element is not supported by this browser.
+            </video>
+    
+            <canvas id="videoCanvas" class="media-element video-canvas">
+                The "canvas" element is not supported by this browser.
+            </canvas>
+    
+            <img id="canvasImage" class="media-element canvas-image" src="initial-image.jpg" alt="Initial image">
+
+        </div>
+
+        <div id="secCamDashboard" class="sec-cam-dashboard">
+            <p>Security Camera for Mobile Phone</p>
+            <p id="countMotionsDetected">0</p>
+            <p id="motionDetectedCount">0</p>
+            <p id="cameraDetails"></p>
+        </div>
+        
+    </body>
+</html>
+

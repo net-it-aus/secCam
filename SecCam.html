@@ -179,6 +179,8 @@
 
         <script>
 
+            const consoleLog = true;
+
             // _dateTime() START
                 function _DateTime(){
                     const weekDaysShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
@@ -330,8 +332,6 @@
             // window.onload = () => {} START ~~~~~~~~~~~~~~~~~~
                 window.onload = () => {
 
-                    const consoleLog = true;
-
                     if(consoleLog){console.log('window.onload = ()');}
 
                     const webcamVideo = document.getElementById("webcamVideo");
@@ -372,9 +372,39 @@
                                     webcamVideo.srcObject = stream;
                                     window.stream = stream; // Save the stream globally to stop it later
                                     const videoTrack = stream.getVideoTracks()[0];
-                                    const settings = videoTrack.getSettings();                       
-                                    if(consoleLog){console.log(`Width: ${settings.width}, Height: ${settings.height}, Frame rate: ${settings.frameRate}, Aspect ratio: ${settings.aspectRatio}, Device ID: ${settings.deviceId}, Facing mode: ${settings.facingMode}, Group ID: ${settings.groupId}, Resize mode: ${settings.resizeMode}`);}
-                                    document.getElementById("cameraDetails").innerHTML = `Width: ${settings.width}, Height: ${settings.height}, Frame rate: ${settings.frameRate}, Aspect ratio: ${settings.aspectRatio.toPrecision(3)}, Facing mode: ${settings.facingMode}.`;
+                                    // Retrieve settings from videoTrack
+                                        const settings = videoTrack.getSettings();
+                                        let myHTML = "";
+                                        // Safely handle undefined settings
+                                            function displaySettings(settings) {
+                                                const keys = Object.keys(settings);
+                                                keys.forEach(key => {
+                                                    if(key==="deviceId"){
+                                                        return;
+                                                    }
+                                                    if(key==="groupId"){
+                                                        return;
+                                                    }
+                                                    const value = settings[key];
+                                                    if (value === undefined) {
+                                                        // console.log(`${key}: Undefined |`);
+                                                        myHTML += `${key}: Undefined |`;
+                                                    } else {
+                                                        if(key==="aspectRatio"){
+                                                            // console.log(`${key}: ${value.toPrecision(3)} |`);
+                                                            myHTML += `${key}: ${value.toPrecision(3)} |`;
+                                                        }else{
+                                                            // console.log(`${key}: ${value} |`);
+                                                            myHTML += `${key}: ${value} |`;
+                                                        }
+                                                    }
+                                                });
+                                            }
+                                            // Call the function
+                                            displaySettings(settings);                                    
+                                            if(consoleLog){console.log(myHTML);}
+                                            document.getElementById("cameraDetails").innerHTML = myHTML;
+                                        // Safely handle undefined settings
                                     // if(consoleLog){console.log(webcamVideo);}
                                     // currentFacingMode = cameraFacingMode; // Update current mode
                                     // Wait for video metadata before initializing canvas START
@@ -397,7 +427,7 @@
                                     // Wait for video metadata before initializing canvas END
                                 } catch (error) {
                                     if(consoleLog){console.error('Error accessing webcam:', error);}
-                                    document.getElementById('secCamDashboard').innerHTML = `<p>Error: Unable to access webcam. Please check permissions.</p>`;
+                                    document.getElementById('secCamDashboard').innerHTML = `<p>Error: Unable to access webcam. Please check permissions.</p><p>${error}</p>`;
                                 }
                             }
                             startWebcamVideo();
